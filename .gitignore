@@ -1,0 +1,25 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets — never commit real keys
+.env
+
+# Training artifacts (large / machine-specific)
+train.log
+train.pid
+unsloth_compiled_cache/
+output/checkpoints/
+
+# Dataset outputs (regenerate via eval.py / data pipeline)
+output/dataset/
+
+# Claude Code local settings
+.claude/settings.local.json

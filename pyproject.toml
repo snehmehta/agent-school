@@ -1,0 +1,66 @@
+[project]
+name = "agent-school"
+version = "0.1.0"
+description = "Sakhiya call center SFT on Qwen3.5-35B-A3B MoE"
+readme = "README.md"
+requires-python = ">=3.11"
+
+# Versions pinned to official Unsloth Qwen3.5-MoE notebook:
+# https://colab.research.google.com/github/unslothai/notebooks/blob/main/nb/Qwen3_5_MoE.ipynb
+#
+# Runtime: LD_LIBRARY_PATH must include torch's bundled libs to avoid NCCL symbol
+# conflict with system libs (ncclDevCommDestroy):
+#   TORCH_LIB=.venv/lib/python3.11/site-packages/torch/lib
+#   LD_LIBRARY_PATH=$TORCH_LIB:$LD_LIBRARY_PATH python train_gpu.py
+#
+# Hardware: H200 141GB VRAM, CUDA 12.4 — bf16, no quantization, LoRA rank 16.
+dependencies = [
+    # Core ML — pinned to what unsloth Qwen3.5-MoE notebook requires
+    "torch==2.8.0",
+    "triton==3.4.0",           # needs make_tensor_descriptor (added in 3.3+)
+    "torchvision==0.23.0",
+    "xformers==0.0.32.post2",
+
+    # Unsloth ecosystem (git sources below)
+    "unsloth",
+    "unsloth-zoo",
+
+    # Training stack — trl and transformers pinned per notebook
+    "trl==0.22.2",
+    "transformers==5.2.0",
+    "tokenizers==0.22.2",
+    "peft==0.19.1",
+    "accelerate==1.13.0",
+    "datasets==4.3.0",
+    "bitsandbytes==0.49.2",
+
+    # Data / inference utilities
+    "huggingface-hub==1.11.0",
+    "python-dotenv==1.2.2",
+    "openai==2.32.0",          # eval_judge.py via OpenRouter
+
+    # Misc runtime deps
+    "safetensors==0.7.0",
+    "sentencepiece==0.2.1",
+    "numpy==2.4.4",
+    "packaging",
+    "requests",
+    "tqdm",
+    "pyyaml",
+    "psutil",
+    "pyarrow",
+    "xxhash",
+    "multiprocess",
+    "fsspec",
+]
+
+[tool.uv.sources]
+unsloth = { git = "https://github.com/unslothai/unsloth.git" }
+unsloth-zoo = { git = "https://github.com/unslothai/unsloth-zoo.git" }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]

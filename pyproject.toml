@@ -1,0 +1,19 @@
+[project]
+name = "agent-school"
+version = "0.1.0"
+description = "A repo where we use tinker to train model using student teacher distillation where teacher are call recording of human agents"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "textual>=0.80.0",
+    "openai>=1.50.0",
+    "python-dotenv>=1.0.0",
+    "rich>=13.0.0",
+    "httpx>=0.28.1",
+    "sarvamai>=0.1.0",
+    "tinker-cookbook>=0.3.0",
+    "orjson>=3.11.8",
+]
+
+[project.scripts]
+agent-school = "main:main"

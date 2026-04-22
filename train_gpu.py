@@ -84,10 +84,11 @@ def main():
     parser.add_argument("--output_dir", default="output/checkpoints/sakhiya-qwen3-moe")
     parser.add_argument("--lora_rank", type=int, default=16)
     parser.add_argument("--max_seq_length", type=int, default=4096)
-    parser.add_argument("--batch_size", type=int, default=2)
-    parser.add_argument("--grad_accum", type=int, default=4)
+    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--grad_accum", type=int, default=8)
     parser.add_argument("--epochs", type=int, default=3)
-    parser.add_argument("--lr", type=float, default=2e-4)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--eval_ratio", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--push_to_hub", default=None,
                         help="HF repo e.g. snehmehta/sakhiya-qwen3-moe")
@@ -127,15 +128,23 @@ def main():
         )
 
     texts = [format_convo(c) for c in convos]
-    dataset = Dataset.from_dict({"text": texts})
-    print(f"Dataset: {len(dataset)} rows | sample length: {len(texts[0])} chars")
+    full = Dataset.from_dict({"text": texts})
+
+    if args.eval_ratio > 0:
+        split = full.train_test_split(test_size=args.eval_ratio, seed=args.seed)
+        train_ds, eval_ds = split["train"], split["test"]
+    else:
+        train_ds, eval_ds = full, None
+
+    print(f"Dataset: train={len(train_ds)} eval={len(eval_ds) if eval_ds else 0} | sample chars={len(texts[0])}")
     print("\n--- First example preview ---")
     print(texts[0][:600])
 
     trainer = SFTTrainer(
         model=model,
         tokenizer=tokenizer,
-        train_dataset=dataset,
+        train_dataset=train_ds,
+        eval_dataset=eval_ds,
         args=SFTConfig(
             dataset_text_field="text",
             per_device_train_batch_size=args.batch_size,
@@ -150,10 +159,9 @@ def main():
             seed=args.seed,
             output_dir=args.output_dir,
             save_strategy="epoch",
+            eval_strategy="epoch" if eval_ds else "no",
             report_to="none",
             max_seq_length=args.max_seq_length,
-            fp16=not torch.cuda.is_bf16_supported(),
-            bf16=torch.cuda.is_bf16_supported(),
         ),
     )
 
@@ -163,7 +171,7 @@ def main():
         response_part="<|im_start|>assistant\n",
     )
 
-    print(f"\nTraining {args.epochs} epochs × {len(dataset)} samples "
+    print(f"\nTraining {args.epochs} epochs × {len(train_ds)} samples "
           f"(effective batch={args.batch_size * args.grad_accum})")
     trainer.train()
 
@@ -174,11 +182,11 @@ def main():
 
     if args.push_to_hub:
         token = os.environ.get("HF_TOKEN")
-        model.push_to_hub_merged(
-            args.push_to_hub, tokenizer,
-            save_method="merged_16bit", token=token,
-        )
-        print(f"Pushed to HF: https://huggingface.co/{args.push_to_hub}")
+        if not token:
+            raise RuntimeError("HF_TOKEN not set in env/.env")
+        model.push_to_hub(args.push_to_hub, token=token, private=True)
+        tokenizer.push_to_hub(args.push_to_hub, token=token, private=True)
+        print(f"Pushed LoRA adapter to HF: https://huggingface.co/{args.push_to_hub}")
 
 
 if __name__ == "__main__":

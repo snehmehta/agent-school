@@ -14,6 +14,9 @@ import os
 from pathlib import Path
 
 os.environ["UNSLOTH_MOE_DISABLE_AUTOTUNE"] = "1"
+# Bypass buggy separated LoRA grouped-GEMM path (down_proj extractor swaps A/B).
+# With MERGED=1, PEFT merges lora_B@lora_A into the weight before the Triton GEMM.
+os.environ["UNSLOTH_MOE_LORA_MERGED"] = "1"
 
 import unsloth  # must be first to apply all patches
 import torch
@@ -82,10 +85,10 @@ def main():
     parser.add_argument("--model", default="unsloth/Qwen3.5-35B-A3B")
     parser.add_argument("--data", default="output/dataset/sakhiya_combined.jsonl")
     parser.add_argument("--output_dir", default="output/checkpoints/sakhiya-qwen3-moe")
-    parser.add_argument("--lora_rank", type=int, default=16)
+    parser.add_argument("--lora_rank", type=int, default=16)   # rank 16: known stable for Unsloth MoE grouped GEMM
     parser.add_argument("--max_seq_length", type=int, default=4096)
-    parser.add_argument("--batch_size", type=int, default=1)
-    parser.add_argument("--grad_accum", type=int, default=8)
+    parser.add_argument("--batch_size", type=int, default=2)    # H200 141GB can handle 2
+    parser.add_argument("--grad_accum", type=int, default=4)    # eff. batch stays 8
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--eval_ratio", type=float, default=0.05)
@@ -103,6 +106,7 @@ def main():
         max_seq_length=args.max_seq_length,
         load_in_4bit=False,
         fast_inference=False,
+        dtype=torch.bfloat16,   # H200 Hopper: bf16 is optimal
     )
     tokenizer = processor.tokenizer if hasattr(processor, "tokenizer") else processor
 
@@ -152,16 +156,23 @@ def main():
             warmup_ratio=0.05,
             num_train_epochs=args.epochs,
             learning_rate=args.lr,
-            logging_steps=10,
+            fp16=False,
+            bf16=True,              # H200: bf16 native
+            logging_steps=5,        # frequent loss visibility
+            logging_first_step=True,
             optim="adamw_8bit",
             weight_decay=0.01,
             lr_scheduler_type="cosine",
             seed=args.seed,
             output_dir=args.output_dir,
             save_strategy="epoch",
+            save_total_limit=3,     # keep only last 3 checkpoints
+            load_best_model_at_end=True if eval_ds else False,
+            metric_for_best_model="eval_loss" if eval_ds else None,
             eval_strategy="epoch" if eval_ds else "no",
             report_to="none",
             max_seq_length=args.max_seq_length,
+            dataloader_num_workers=4,
         ),
     )
 
@@ -181,9 +192,9 @@ def main():
     print(f"\nLoRA adapter saved to {out}")
 
     if args.push_to_hub:
-        token = os.environ.get("HF_TOKEN")
+        token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_KEY")
         if not token:
-            raise RuntimeError("HF_TOKEN not set in env/.env")
+            raise RuntimeError("HUGGINGFACE_API_KEY not set in .env")
         model.push_to_hub(args.push_to_hub, token=token, private=True)
         tokenizer.push_to_hub(args.push_to_hub, token=token, private=True)
         print(f"Pushed LoRA adapter to HF: https://huggingface.co/{args.push_to_hub}")
